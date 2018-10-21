@@ -140,14 +140,23 @@ public class HttpRequest
 		
 		return null;
 	}
+    
 
 	public String post(URL url, HashMap<String, String> params, HashMap<String, String> headers) 
 	{
 		String result = null;
+		HttpURLConnection urlConnection = null;
+		int status = 0;
 		
 		try
 		{
-			HttpURLConnection urlConnection = (HttpURLConnection) url.openConnection();
+			urlConnection = (HttpURLConnection) url.openConnection();
+			urlConnection.setDoOutput(true);
+			urlConnection.setRequestMethod("POST");
+			urlConnection.setChunkedStreamingMode(0);
+			urlConnection.setRequestProperty( "Content-Type", "application/x-www-form-urlencoded");
+			urlConnection.setRequestProperty( "charset", "utf-8");
+			urlConnection.setUseCaches( false );
 			
 			if(headers != null)
 			{
@@ -157,25 +166,31 @@ public class HttpRequest
 				}
 			}
 			
+			StringBuilder postData = new StringBuilder();
+			byte[] postDataBytes = postData.toString().getBytes("UTF-8");
+			
+			
 			try 
 			{
-				urlConnection.setDoOutput(true);
-				urlConnection.setRequestMethod("POST");
-				urlConnection.setChunkedStreamingMode(0);
-	
 				DataOutputStream out = new DataOutputStream(urlConnection.getOutputStream());
 				
 				if(params!=null)
 				{
-					writeStream(out, getParseUrlEncodeParams(params));
+					String strParams = getParseUrlEncodeParams(params);
+					postDataBytes = strParams.getBytes("UTF-8");
+					
+					urlConnection.setRequestProperty( "Content-Length", String.valueOf(postDataBytes.length));
+					urlConnection.getOutputStream().write(postDataBytes);
+					status = urlConnection.getResponseCode();
 				}
-	
-				InputStream in = new BufferedInputStream(urlConnection.getInputStream());
-				result = readStream(in);
+				
+				result = checkAndGetCorrectStream(urlConnection, status);
+				
 			}
 			catch(Exception e)
 			{
 				System.out.println(e.toString());
+				result = checkAndGetCorrectStream(urlConnection, status);
 			}
 			finally 
 			{
@@ -195,8 +210,36 @@ public class HttpRequest
 			{
 				this.delegate.onFailHttpRequest(null);
 			}
+			
+			if(urlConnection != null)
+			{
+				urlConnection.disconnect();
+			}
 		}
 		return result;
+	}
+	
+	private String checkAndGetCorrectStream(HttpURLConnection urlConnection,int status)
+	{
+		InputStream in = null;
+		
+		try
+		{
+			if(status>=400)
+			{
+				in = new BufferedInputStream(urlConnection.getInputStream());
+			}
+			else
+			{
+				in = new BufferedInputStream(urlConnection.getErrorStream());
+			}
+		}
+		catch(Exception e)
+		{
+			
+		}
+		
+		return readStream(in);
 	}
 	
 	private String readStream(InputStream in) 
@@ -253,42 +296,44 @@ public class HttpRequest
 		}
 	}
 	
-	private void writeStream(DataOutputStream output, String contents) 
-	{
-		try 
-		{
-			output.writeBytes(contents);
-			output.flush();
-			output.close();
-		} 
-		catch (IOException ex) 
-		{
-
-		}
-	}
+//	private void writeStream(DataOutputStream output, byte[] bs) 
+//	{
+//		try 
+//		{
+//			output.write(bs);
+//			output.flush();
+//			output.close();
+//		} 
+//		catch (IOException ex) 
+//		{
+//
+//		}
+//	}
 	
 	private String getParseUrlEncodeParams(HashMap<String, String> params)
 	{
 		StringBuilder postParams = new StringBuilder();
-		String key, value = "", result = "";
+		String result = "";
 		
 		for (Map.Entry<String, String> entry : params.entrySet()) 
-		{
-		    key = entry.getKey();
-		    
+		{   
+			if(postParams.length() != 0)
+            {
+				postParams.append('&');
+            }
+			
 		    try 
 		    {
-				value =  URLEncoder.encode((String) entry.getValue(), "UTF-8");
+		    	postParams.append(URLEncoder.encode(entry.getKey(), "UTF-8"));
+		    	postParams.append("=");
+		    	postParams.append(URLEncoder.encode((String) entry.getValue(), "UTF-8"));
 			} 
 		    catch (UnsupportedEncodingException e) 
 		    {
 				e.printStackTrace();
-			}
-		    
-		    postParams.append(key+"="+value+"&");
+			}  
 		}
-		result = postParams.toString();
-		result = result.substring(0, result.length() - 1);
+		
 		return result;
 	}
 }
